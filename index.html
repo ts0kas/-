@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>D2D Satellite / 5G TDD Impact Simulator</title>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- cinematic 3D stage -->
+<canvas id="scene" aria-hidden="true"></canvas>
+<div id="grain" aria-hidden="true"></div>
+<div id="vignette" aria-hidden="true"></div>
+<div id="webglFallback" hidden>
+  WebGL is unavailable in this browser. The telemetry and impact panels below still work.
+</div>
+
+<main class="frame">
+
+  <header class="masthead">
+    <div class="brand">
+      <span class="eyebrow"><span class="dot"></span>Coexistence Study · 3.5&nbsp;GHz&nbsp;TDD Band</span>
+      <h1>D2D&nbsp;Satellite <span class="slash">/</span> 5G&nbsp;TDD<br><span class="h1-line2">Impact&nbsp;Simulator</span></h1>
+      <p class="sub">A LEO direct-to-device satellite tracks across the sky. Watch how its round-trip delay tears symbols out of a synchronised terrestrial 5G frame.</p>
+    </div>
+    <dl class="fixed-params" aria-label="Fixed frame parameters">
+      <div><dt>TN frame</dt><dd>6 × DDDSU</dd></div>
+      <div><dt>Special slot</dt><dd>S = 10:2:2</dd></div>
+      <div><dt>Guard period</dt><dd>71.4 µs</dd></div>
+      <div><dt>Frame length</dt><dd>420 sym</dd></div>
+    </dl>
+  </header>
+
+  <!-- live telemetry rail across the hero -->
+  <section class="telemetry" aria-label="Live orbital telemetry">
+    <div class="tcell">
+      <span class="tlabel">Elevation</span>
+      <span class="tval"><b id="tElev">90</b><i>°</i></span>
+    </div>
+    <div class="tcell">
+      <span class="tlabel">Timing advance</span>
+      <span class="tval"><b id="tTa">2.0</b><i>ms</i></span>
+    </div>
+    <div class="tcell">
+      <span class="tlabel">One-way delay</span>
+      <span class="tval"><b id="tDt">2.00</b><i>ms</i></span>
+    </div>
+    <div class="tcell">
+      <span class="tlabel">Slant range</span>
+      <span class="tval"><b id="tRange">600</b><i>km</i></span>
+    </div>
+    <div class="tcell tcell--wide">
+      <span class="tlabel">Status</span>
+      <span class="tstatus" id="tStatus"><span class="sdot"></span><b>Tracking · zenith pass</b></span>
+    </div>
+  </section>
+
+  <!-- control deck -->
+  <section class="deck" aria-label="Elevation control">
+    <div class="deck-top">
+      <label class="deck-label" for="elev">Drive elevation angle</label>
+      <div class="deck-actions" id="ticks" role="group" aria-label="Jump to measured elevation">
+        <button data-e="30">30°</button>
+        <button data-e="40">40°</button>
+        <button data-e="50">50°</button>
+        <button data-e="90" class="on">90°</button>
+        <button data-e="all" class="sigma">Σ&nbsp;all angles</button>
+      </div>
+    </div>
+    <input id="elev" type="range" min="30" max="90" step="1" value="90"
+           aria-label="Satellite elevation angle in degrees" style="--fill:100%">
+    <div class="scale" aria-hidden="true">
+      <span>30° horizon-grazing</span><span>90° zenith</span>
+    </div>
+  </section>
+
+  <!-- impact readouts -->
+  <section class="impact" aria-label="Impact on the terrestrial network">
+    <div class="impact-head">
+      <h2>Damage to the terrestrial network</h2>
+      <span class="mode-tag" id="modeTag">Single pass</span>
+    </div>
+
+    <div class="kpis">
+      <article class="kpi" data-k="blank">
+        <header><span class="sw"></span>Blanked DL</header>
+        <p class="pct" id="kBlankP">31<i>%</i></p>
+        <p class="sym"><b id="kBlankS">96</b> of 312 DL sym</p>
+        <div class="track"><div class="fill" id="barBlank"></div></div>
+      </article>
+      <article class="kpi" data-k="unus">
+        <header><span class="sw"></span>Unusable DL</header>
+        <p class="pct" id="kUnusP">31<i>%</i></p>
+        <p class="sym"><b id="kUnusS">96</b> of 312 DL sym</p>
+        <div class="track"><div class="fill" id="barUnus"></div></div>
+      </article>
+      <article class="kpi" data-k="tot">
+        <header><span class="sw"></span>Total DL impact</header>
+        <p class="pct" id="kTotP">31<i>%</i></p>
+        <p class="sym"><b id="kTotS">96</b> of 312 DL sym</p>
+        <div class="track"><div class="fill" id="barTot"></div></div>
+      </article>
+      <article class="kpi" data-k="ul">
+        <header><span class="sw"></span>Interfered UL</header>
+        <p class="pct" id="kUlP">0<i>%</i></p>
+        <p class="sym"><b id="kUlS">0</b> of 96 UL sym</p>
+        <div class="track"><div class="fill" id="barUl"></div></div>
+      </article>
+    </div>
+
+    <div class="verdict" id="verdict">
+      <span class="vic" id="verdIc">◆</span>
+      <p class="vtxt" id="verdTxt"></p>
+    </div>
+  </section>
+
+  <!-- symbol strip -->
+  <section class="strip-card" aria-label="Frame symbol map">
+    <div class="strip-head">
+      <h2>Frame symbol map <span>· one DDDSU period at the base station</span></h2>
+      <span class="strip-tag">14 sym / slot</span>
+    </div>
+    <ul class="legend">
+      <li><i data-c="dl"></i>DL usable</li>
+      <li><i data-c="gp"></i>Guard (S)</li>
+      <li><i data-c="ul"></i>UL usable</li>
+      <li><i data-c="blank"></i>Blanked DL</li>
+      <li><i data-c="unus"></i>Unusable DL</li>
+      <li><i data-c="interf"></i>Interfered UL</li>
+    </ul>
+    <svg id="strip" viewBox="0 0 700 100" preserveAspectRatio="xMidYMid meet"
+         role="img" aria-label="Symbol-level map of lost downlink and uplink symbols"></svg>
+    <p class="strip-note" id="stripNote"></p>
+  </section>
+
+  <footer class="colophon">
+    <p>Delay curve and symbol-loss figures reproduce the DDDSU (S=10:2:2) impact table for a 600&nbsp;km LEO D2D system coexisting with a synchronised 3.5&nbsp;GHz TDD network. Interference occurs because the satellite round-trip delay (≈2–3.5&nbsp;ms) dwarfs the 71.4&nbsp;µs guard period.</p>
+    <p class="colophon-meta">DL block 312 sym · UL block 96 sym · Earth rendered procedurally</p>
+  </footer>
+</main>
+
+<!-- three.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- app -->
+<script src="scene.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
