@@ -108,10 +108,10 @@
 
     <div class="overlay" id="startScreen">
       <h2>Φιδάκι</h2>
-      <p>Φάε τα μήλα για να μεγαλώσει η ουρά σου.<br>
+      <p>Μάζεψε τα κέρματα για να μεγαλώσει η ουρά σου.<br>
          Πρόσεχε τις <b>βόμβες</b>, τους τοίχους και την ουρά σου!</p>
       <div class="legend">
-        <span>🍎 +1 πόντος</span><span>💣 τέλος</span>
+        <span>🪙 +1 πόντος</span><span>💣 τέλος</span>
       </div>
       <button id="startBtn">Παίξε</button>
       <p class="hint">Κινητό: σάρωσε (swipe) πάνω στην οθόνη<br>Υπολογιστής: βελάκια ή WASD · Space για παύση</p>
@@ -147,7 +147,7 @@
 
   /* ===== Εικόνες (βάλε δικές σου στο φάκελο assets/) =====
      assets/head.png  → κεφάλι φιδιού
-     assets/apple.png → αντί για μήλο
+     assets/apple.png → (προαιρετικά) εικόνα αντί για το κέρμα
      assets/bomb.png  → βόμβα
      Αν λείπουν, το παιχνίδι ζωγραφίζει τα δικά του. */
   const images = {};
@@ -252,7 +252,7 @@
       score++;
       scoreEl.textContent = score;
       apple = null;
-      // κάθε 2 μήλα εμφανίζεται μια νέα βόμβα
+      // κάθε 2 κέρματα εμφανίζεται μια νέα βόμβα
       if (score % 2 === 0 && bombs.length < MAX_BOMBS) {
         const b = freeCell(true); if (b) bombs.push(b);
       }
@@ -295,24 +295,56 @@
     ctx.restore();
   }
 
+  // Κέρμα 10 λεπτών ευρώ (χρυσό «Nordic gold»)
   function drawApple(x, y) {
     const cx = (x + .5) * cell, cy = (y + .5) * cell;
     const pulse = 1 + Math.sin(Date.now() / 200) * 0.04;
     if (images.apple) return drawImageCircle(images.apple, cx, cy, cell * 0.95 * pulse);
-    const r = cell * 0.38 * pulse;
-    const g = ctx.createRadialGradient(cx - r * .4, cy - r * .4, r * .1, cx, cy, r);
-    g.addColorStop(0, "#ff8a8a"); g.addColorStop(1, "#e0213c");
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(cx, cy + r * .08, r, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = "#6b3b1a"; ctx.lineWidth = cell * .07; ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(cx, cy - r * .7); ctx.lineTo(cx + r * .15, cy - r * 1.15); ctx.stroke();
-    ctx.fillStyle = "#3ddc6b";
-    ctx.beginPath(); ctx.ellipse(cx + r * .45, cy - r * 1.0, r * .35, r * .17, -0.5, 0, Math.PI * 2); ctx.fill();
+    const r = cell * 0.42 * pulse;
+    ctx.save();
+    ctx.shadowColor = "rgba(255,210,80,.55)"; ctx.shadowBlur = cell * .35;
+    const rim = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+    rim.addColorStop(0, "#fff0a8"); rim.addColorStop(.5, "#d4a62a"); rim.addColorStop(1, "#8a6512");
+    ctx.fillStyle = rim;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    const face = ctx.createRadialGradient(cx - r * .35, cy - r * .35, r * .1, cx, cy, r * .85);
+    face.addColorStop(0, "#ffe680"); face.addColorStop(1, "#c8961f");
+    ctx.fillStyle = face;
+    ctx.beginPath(); ctx.arc(cx, cy, r * .84, 0, Math.PI * 2); ctx.fill();
+    // αστεράκια γύρω-γύρω
+    ctx.fillStyle = "rgba(120,85,10,.75)";
+    for (let i = 0; i < 12; i++) {
+      const a = i / 12 * Math.PI * 2;
+      ctx.beginPath(); ctx.arc(cx + Math.cos(a) * r * .68, cy + Math.sin(a) * r * .68, r * .045, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = "#6b4a08";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = `800 ${r * .78}px system-ui, sans-serif`;
+    ctx.fillText("10", cx, cy - r * .08);
+    ctx.font = `700 ${r * .2}px system-ui, sans-serif`;
+    ctx.fillText("CENT", cx, cy + r * .4);
   }
 
   function drawBomb(x, y) {
     const cx = (x + .5) * cell, cy = (y + .5) * cell;
-    if (images.bomb) return drawImageCircle(images.bomb, cx, cy, cell * 0.95);
+    if (images.bomb) {
+      const R = cell * 0.46;
+      const fl = (Math.sin(Date.now() / 70) + 1) / 2;
+      // φιτίλι + σπίθα
+      ctx.strokeStyle = "#c9a36b"; ctx.lineWidth = cell * .07; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(cx + R * .5, cy - R * .8);
+      ctx.quadraticCurveTo(cx + R * .9, cy - R * 1.35, cx + R * 1.1, cy - R * 1.05); ctx.stroke();
+      ctx.fillStyle = fl > .5 ? "#ffd23f" : "#ff7a1a";
+      ctx.beginPath(); ctx.arc(cx + R * 1.1, cy - R * 1.05, cell * (.08 + fl * .05), 0, Math.PI * 2); ctx.fill();
+      ctx.save();
+      ctx.shadowColor = "rgba(255,84,112,.9)"; ctx.shadowBlur = cell * (.3 + fl * .25);
+      ctx.fillStyle = "#ff5470";
+      ctx.beginPath(); ctx.arc(cx, cy, R + cell * .06, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      drawImageCircle(images.bomb, cx, cy, R * 2);
+      return;
+    }
     const r = cell * 0.34;
     const g = ctx.createRadialGradient(cx - r * .4, cy - r * .3, r * .1, cx, cy + r * .1, r);
     g.addColorStop(0, "#6a6f8a"); g.addColorStop(1, "#0c0e18");
