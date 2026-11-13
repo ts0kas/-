@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0f1222">
+<title>Φιδάκι</title>
+<style>
+  :root {
+    --bg: #0f1222;
+    --bg2: #171b33;
+    --panel: rgba(255,255,255,0.06);
+    --border: rgba(255,255,255,0.10);
+    --text: #eef0ff;
+    --muted: #9aa0c3;
+    --accent: #39e58c;
+    --accent2: #1fb8ff;
+    --danger: #ff5470;
+    --cell-a: #1b2040;
+    --cell-b: #1f2547;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%;
+    background: radial-gradient(1200px 800px at 50% -10%, #23295a 0%, var(--bg) 60%) fixed, var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overscroll-behavior: none;
+    touch-action: none;
+    user-select: none; -webkit-user-select: none;
+  }
+  .app {
+    min-height: 100%;
+    display: flex; flex-direction: column; align-items: center;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    gap: 14px;
+  }
+  header {
+    width: 100%; max-width: 520px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  h1 {
+    margin: 0; font-size: 22px; font-weight: 800; letter-spacing: .3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .scores { display: flex; gap: 8px; }
+  .chip {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 6px 12px; text-align: center; min-width: 70px;
+  }
+  .chip small { display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .chip b { font-size: 20px; font-variant-numeric: tabular-nums; }
+  .board-wrap {
+    position: relative;
+    width: min(100%, 520px, calc(100vh - 190px));
+    aspect-ratio: 1 / 1;
+    border-radius: 20px;
+    padding: 8px;
+    background: linear-gradient(145deg, rgba(57,229,140,.35), rgba(31,184,255,.35));
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  }
+  canvas {
+    display: block; width: 100%; height: 100%;
+    border-radius: 14px; background: var(--bg2);
+  }
+  .overlay {
+    position: absolute; inset: 8px; border-radius: 14px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; text-align: center; padding: 20px;
+    background: rgba(12,14,30,.78); backdrop-filter: blur(4px);
+  }
+  .overlay[hidden] { display: none; }
+  .overlay h2 { margin: 0; font-size: 30px; }
+  .overlay p { margin: 0; color: var(--muted); line-height: 1.5; font-size: 15px; }
+  .overlay .big { font-size: 46px; font-weight: 800; color: var(--text); }
+  .new-record { color: var(--accent); font-weight: 700; }
+  button {
+    font: inherit; font-weight: 700; font-size: 17px;
+    border: 0; border-radius: 14px; padding: 14px 28px; cursor: pointer;
+    color: #08131a;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    box-shadow: 0 8px 24px rgba(57,229,140,.3);
+  }
+  button:active { transform: scale(.97); }
+  .controls { display: flex; gap: 10px; }
+  .ghost {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    box-shadow: none; padding: 10px 18px; font-size: 15px;
+  }
+  .hint { color: var(--muted); font-size: 13px; text-align: center; }
+  .legend { display: flex; gap: 16px; justify-content: center; color: var(--muted); font-size: 14px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>🐍 Φιδάκι</h1>
+    <div class="scores">
+      <div class="chip"><small>Σκορ</small><b id="score">0</b></div>
+      <div class="chip"><small>Ρεκόρ</small><b id="best">0</b></div>
+    </div>
+  </header>
+
+  <div class="board-wrap" id="boardWrap">
+    <canvas id="board"></canvas>
+
+    <div class="overlay" id="startScreen">
+      <h2>Φιδάκι</h2>
+      <p>Φάε τα μήλα για να μεγαλώσει η ουρά σου.<br>
+         Πρόσεχε τις <b>βόμβες</b>, τους τοίχους και την ουρά σου!</p>
+      <div class="legend">
+        <span>🍎 +1 πόντος</span><span>💣 τέλος</span>
+      </div>
+      <button id="startBtn">Παίξε</button>
+      <p class="hint">Κινητό: σάρωσε (swipe) πάνω στην οθόνη<br>Υπολογιστής: βελάκια ή WASD · Space για παύση</p>
+    </div>
+
+    <div class="overlay" id="pauseScreen" hidden>
+      <h2>Παύση</h2>
+      <button id="resumeBtn">Συνέχεια</button>
+    </div>
+
+    <div class="overlay" id="overScreen" hidden>
+      <h2 id="overTitle">Τέλος παιχνιδιού</h2>
+      <div class="big" id="finalScore">0</div>
+      <p id="overMsg"></p>
+      <button id="againBtn">Ξανά</button>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="ghost" id="pauseBtn">⏸ Παύση</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ===== Ρυθμίσεις ===== */
+  const GRID = 18;            // κελιά ανά πλευρά
+  const TICK_MS = 140;        // σταθερή ταχύτητα
+  const MAX_BOMBS = 8;
+  const BEST_KEY = "snake.best";
+
+  /* ===== Εικόνες (βάλε δικές σου στο φάκελο assets/) =====
+     assets/head.png  → κεφάλι φιδιού
+     assets/apple.png → αντί για μήλο
+     assets/bomb.png  → βόμβα
+     Αν λείπουν, το παιχνίδι ζωγραφίζει τα δικά του. */
+  const images = {};
+  function loadImage(name, src) {
+    const img = new Image();
+    img.onload = () => { images[name] = img; draw(); };
+    img.src = src;
+  }
+  loadImage("head", "assets/head.png");
+  loadImage("apple", "assets/apple.png");
+  loadImage("bomb", "assets/bomb.png");
+
+  /* ===== DOM ===== */
+  const canvas = document.getElementById("board");
+  const ctx = canvas.getContext("2d");
+  const $ = (id) => document.getElementById(id);
+  const scoreEl = $("score"), bestEl = $("best");
+  const startScreen = $("startScreen"), pauseScreen = $("pauseScreen"), overScreen = $("overScreen");
+
+  /* ===== High score ===== */
+  function readBest() { try { return parseInt(localStorage.getItem(BEST_KEY), 10) || 0; } catch (e) { return 0; } }
+  function writeBest(v) { try { localStorage.setItem(BEST_KEY, String(v)); } catch (e) {} }
+  let best = readBest();
+  bestEl.textContent = best;
+
+  /* ===== Κατάσταση ===== */
+  let snake, dir, queue, apple, bombs, score, state = "start", timer = null;
+
+  function reset() {
+    const mid = Math.floor(GRID / 2);
+    snake = [{ x: mid, y: mid }, { x: mid - 1, y: mid }, { x: mid - 2, y: mid }];
+    dir = { x: 1, y: 0 };
+    queue = [];
+    bombs = [];
+    score = 0;
+    scoreEl.textContent = 0;
+    apple = freeCell();
+  }
+
+  function occupied(x, y) {
+    return snake.some(s => s.x === x && s.y === y) ||
+           bombs.some(b => b.x === x && b.y === y) ||
+           (apple && apple.x === x && apple.y === y);
+  }
+
+  function freeCell(avoidNearHead) {
+    const head = snake[0];
+    for (let tries = 0; tries < 500; tries++) {
+      const x = Math.floor(Math.random() * GRID), y = Math.floor(Math.random() * GRID);
+      if (occupied(x, y)) continue;
+      if (avoidNearHead && Math.abs(x - head.x) + Math.abs(y - head.y) < 4) continue;
+      return { x, y };
+    }
+    return null;
+  }
+
+  /* ===== Βρόχος ===== */
+  function start() {
+    reset();
+    state = "play";
+    startScreen.hidden = overScreen.hidden = pauseScreen.hidden = true;
+    clearInterval(timer);
+    timer = setInterval(step, TICK_MS);
+    draw();
+  }
+
+  function pause() {
+    if (state === "play") {
+      state = "pause"; clearInterval(timer); pauseScreen.hidden = false;
+    } else if (state === "pause") {
+      state = "play"; pauseScreen.hidden = true; timer = setInterval(step, TICK_MS);
+    }
+  }
+
+  function gameOver(reason) {
+    state = "over";
+    clearInterval(timer);
+    const isRecord = score > best;
+    if (isRecord) { best = score; writeBest(best); bestEl.textContent = best; }
+    $("overTitle").textContent = reason === "bomb" ? "💥 Μπουμ!" : "Τέλος παιχνιδιού";
+    $("finalScore").textContent = score;
+    $("overMsg").innerHTML = isRecord && score > 0
+      ? '<span class="new-record">🏆 Νέο ρεκόρ!</span>'
+      : "Ρεκόρ: " + best;
+    overScreen.hidden = false;
+    if (navigator.vibrate) { try { navigator.vibrate(reason === "bomb" ? [80, 40, 160] : 120); } catch (e) {} }
+  }
+
+  function step() {
+    if (queue.length) dir = queue.shift();
+    const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+
+    if (head.x < 0 || head.y < 0 || head.x >= GRID || head.y >= GRID) return gameOver("wall");
+    if (bombs.some(b => b.x === head.x && b.y === head.y)) { snake.unshift(head); draw(); return gameOver("bomb"); }
+
+    const eats = apple && head.x === apple.x && head.y === apple.y;
+    const body = eats ? snake : snake.slice(0, -1);   // η ουρά φεύγει αν δεν τρώει
+    if (body.some(s => s.x === head.x && s.y === head.y)) return gameOver("self");
+
+    snake.unshift(head);
+    if (eats) {
+      score++;
+      scoreEl.textContent = score;
+      apple = null;
+      // κάθε 2 μήλα εμφανίζεται μια νέα βόμβα
+      if (score % 2 === 0 && bombs.length < MAX_BOMBS) {
+        const b = freeCell(true); if (b) bombs.push(b);
+      }
+      apple = freeCell();
+    } else {
+      snake.pop();
+    }
+    draw();
+  }
+
+  /* ===== Σχεδίαση ===== */
+  let cell = 20;
+  function resize() {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    cell = canvas.width / GRID;
+    draw();
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function drawImageCircle(img, cx, cy, size) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, size / 2, 0, Math.PI * 2);
+    ctx.clip();
+    // cover-fit
+    const s = Math.min(img.width, img.height);
+    ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, cx - size / 2, cy - size / 2, size, size);
+    ctx.restore();
+  }
+
+  function drawApple(x, y) {
+    const cx = (x + .5) * cell, cy = (y + .5) * cell;
+    const pulse = 1 + Math.sin(Date.now() / 200) * 0.04;
+    if (images.apple) return drawImageCircle(images.apple, cx, cy, cell * 0.95 * pulse);
+    const r = cell * 0.38 * pulse;
+    const g = ctx.createRadialGradient(cx - r * .4, cy - r * .4, r * .1, cx, cy, r);
+    g.addColorStop(0, "#ff8a8a"); g.addColorStop(1, "#e0213c");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy + r * .08, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#6b3b1a"; ctx.lineWidth = cell * .07; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(cx, cy - r * .7); ctx.lineTo(cx + r * .15, cy - r * 1.15); ctx.stroke();
+    ctx.fillStyle = "#3ddc6b";
+    ctx.beginPath(); ctx.ellipse(cx + r * .45, cy - r * 1.0, r * .35, r * .17, -0.5, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function drawBomb(x, y) {
+    const cx = (x + .5) * cell, cy = (y + .5) * cell;
+    if (images.bomb) return drawImageCircle(images.bomb, cx, cy, cell * 0.95);
+    const r = cell * 0.34;
+    const g = ctx.createRadialGradient(cx - r * .4, cy - r * .3, r * .1, cx, cy + r * .1, r);
+    g.addColorStop(0, "#6a6f8a"); g.addColorStop(1, "#0c0e18");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy + r * .12, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#3a3f58";
+    ctx.fillRect(cx - r * .25, cy - r * 1.0, r * .5, r * .3);
+    ctx.strokeStyle = "#c9a36b"; ctx.lineWidth = cell * .06; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(cx, cy - r * 1.0); ctx.quadraticCurveTo(cx + r * .5, cy - r * 1.5, cx + r * .7, cy - r * 1.25); ctx.stroke();
+    const flick = (Math.sin(Date.now() / 70) + 1) / 2;
+    ctx.fillStyle = flick > .5 ? "#ffd23f" : "#ff7a1a";
+    ctx.beginPath(); ctx.arc(cx + r * .75, cy - r * 1.25, cell * (.07 + flick * .04), 0, Math.PI * 2); ctx.fill();
+  }
+
+  function drawSnake() {
+    const n = snake.length;
+    for (let i = n - 1; i >= 1; i--) {
+      const s = snake[i];
+      const t = i / Math.max(n - 1, 1);
+      // χρώμα από πράσινο (κοντά στο κεφάλι) προς μπλε (ουρά)
+      const r = Math.round(57 + (31 - 57) * t), g = Math.round(229 + (184 - 229) * t), b = Math.round(140 + (255 - 140) * t);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      const pad = cell * (0.08 + t * 0.08);
+      roundRect(s.x * cell + pad, s.y * cell + pad, cell - pad * 2, cell - pad * 2, cell * 0.3);
+      ctx.fill();
+    }
+    const h = snake[0];
+    const cx = (h.x + .5) * cell, cy = (h.y + .5) * cell;
+    if (images.head) {
+      ctx.save();
+      ctx.shadowColor = "rgba(57,229,140,.8)"; ctx.shadowBlur = cell * .4;
+      ctx.fillStyle = "#39e58c";
+      ctx.beginPath(); ctx.arc(cx, cy, cell * .56, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      drawImageCircle(images.head, cx, cy, cell * 1.0);
+      return;
+    }
+    ctx.fillStyle = "#39e58c";
+    roundRect(h.x * cell + cell * .04, h.y * cell + cell * .04, cell * .92, cell * .92, cell * .35);
+    ctx.fill();
+    // μάτια
+    const ex = dir.y !== 0 ? cell * .2 : 0, ey = dir.x !== 0 ? cell * .2 : 0;
+    const fx = dir.x * cell * .15, fy = dir.y * cell * .15;
+    for (const sgn of [-1, 1]) {
+      const px = cx + fx + ex * sgn, py = cy + fy + ey * sgn;
+      ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(px, py, cell * .13, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#0f1222"; ctx.beginPath(); ctx.arc(px + dir.x * cell * .04, py + dir.y * cell * .04, cell * .065, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  function draw() {
+    if (!snake) return;
+    for (let y = 0; y < GRID; y++) for (let x = 0; x < GRID; x++) {
+      ctx.fillStyle = (x + y) % 2 ? "#1b2040" : "#1f2547";
+      ctx.fillRect(x * cell, y * cell, cell + 1, cell + 1);
+    }
+    bombs.forEach(b => drawBomb(b.x, b.y));
+    if (apple) drawApple(apple.x, apple.y);
+    drawSnake();
+  }
+
+  // ήπια κίνηση (παλμός μήλου, φιτίλι βόμβας) ανάμεσα στα βήματα
+  (function anim() { if (state === "play" || state === "start") draw(); requestAnimationFrame(anim); })();
+
+  /* ===== Χειρισμός ===== */
+  function turn(nx, ny) {
+    if (state !== "play") return;
+    const last = queue.length ? queue[queue.length - 1] : dir;
+    if (last.x === nx && last.y === ny) return;
+    if (last.x === -nx && last.y === -ny) return;   // όχι αναστροφή 180°
+    if (queue.length < 3) queue.push({ x: nx, y: ny });
+  }
+
+  const KEYS = {
+    ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+    w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0],
+    W: [0, -1], S: [0, 1], A: [-1, 0], D: [1, 0]
+  };
+  document.addEventListener("keydown", (e) => {
+    if (KEYS[e.key]) { e.preventDefault(); turn(...KEYS[e.key]); }
+    else if (e.key === " " || e.key === "p" || e.key === "P") {
+      e.preventDefault();
+      if (state === "play" || state === "pause") pause();
+      else start();
+    } else if (e.key === "Enter" && (state === "start" || state === "over")) start();
+  });
+
+  // Swipe σε όλη την οθόνη: αλλάζει κατεύθυνση μόλις το δάχτυλο κινηθεί αρκετά,
+  // ώστε να μπορείς να κάνεις συνεχόμενες στροφές χωρίς να σηκώνεις το δάχτυλο.
+  let tx = null, ty = null;
+  const SWIPE_MIN = 22;
+  document.addEventListener("touchstart", (e) => {
+    const t = e.touches[0]; tx = t.clientX; ty = t.clientY;
+  }, { passive: true });
+  document.addEventListener("touchmove", (e) => {
+    if (tx === null) return;
+    if (state === "play") e.preventDefault();
+    const t = e.touches[0];
+    const dx = t.clientX - tx, dy = t.clientY - ty;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_MIN) return;
+    if (Math.abs(dx) > Math.abs(dy)) turn(dx > 0 ? 1 : -1, 0);
+    else turn(0, dy > 0 ? 1 : -1);
+    tx = t.clientX; ty = t.clientY;
+  }, { passive: false });
+  document.addEventListener("touchend", () => { tx = ty = null; });
+
+  $("startBtn").addEventListener("click", start);
+  $("againBtn").addEventListener("click", start);
+  $("resumeBtn").addEventListener("click", pause);
+  $("pauseBtn").addEventListener("click", () => { if (state === "play" || state === "pause") pause(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden && state === "play") pause(); });
+
+  window.addEventListener("resize", resize);
+  reset();
+  resize();
+})();
+</script>
+</body>
+</html>
