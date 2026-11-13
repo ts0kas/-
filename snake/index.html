@@ -153,7 +153,7 @@
   const images = {};
   function loadImage(name, src) {
     const img = new Image();
-    img.onload = () => { images[name] = img; draw(); };
+    img.onload = () => { images[name] = img; buildSprites(); };
     img.src = src;
   }
   loadImage("head", "assets/head.png");
@@ -174,7 +174,7 @@
   bestEl.textContent = best;
 
   /* ===== Κατάσταση ===== */
-  let snake, dir, queue, apple, bombs, score, state = "start", timer = null;
+  let snake, dir, queue, apple, bombs, score, state = "start";
 
   function reset() {
     const mid = Math.floor(GRID / 2);
@@ -204,27 +204,29 @@
     return null;
   }
 
-  /* ===== Βρόχος ===== */
+  /* ===== Βρόχος (σταθερό βήμα + ομαλή κίνηση στα 60fps) ===== */
+  let prev = null;        // θέσεις πριν το τελευταίο βήμα, για παρεμβολή
+  let acc = 0, lastT = 0;
+
   function start() {
     reset();
+    prev = snake.map(s => ({ x: s.x, y: s.y }));
+    acc = 0; lastT = performance.now();
     state = "play";
     startScreen.hidden = overScreen.hidden = pauseScreen.hidden = true;
-    clearInterval(timer);
-    timer = setInterval(step, TICK_MS);
-    draw();
   }
 
   function pause() {
     if (state === "play") {
-      state = "pause"; clearInterval(timer); pauseScreen.hidden = false;
+      state = "pause"; pauseScreen.hidden = false;
     } else if (state === "pause") {
-      state = "play"; pauseScreen.hidden = true; timer = setInterval(step, TICK_MS);
+      state = "play"; pauseScreen.hidden = true; lastT = performance.now();
     }
   }
 
   function gameOver(reason) {
     state = "over";
-    clearInterval(timer);
+    acc = TICK_MS;   // πάγωμα στην τελική θέση
     const isRecord = score > best;
     if (isRecord) { best = score; writeBest(best); bestEl.textContent = best; }
     $("overTitle").textContent = reason === "bomb" ? "💥 Μπουμ!" : "Τέλος παιχνιδιού";
@@ -239,13 +241,16 @@
   function step() {
     if (queue.length) dir = queue.shift();
     const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+    const old = snake.map(s => ({ x: s.x, y: s.y }));
 
-    if (head.x < 0 || head.y < 0 || head.x >= GRID || head.y >= GRID) return gameOver("wall");
-    if (bombs.some(b => b.x === head.x && b.y === head.y)) { snake.unshift(head); draw(); return gameOver("bomb"); }
+    if (head.x < 0 || head.y < 0 || head.x >= GRID || head.y >= GRID) { prev = old; return gameOver("wall"); }
+    if (bombs.some(b => b.x === head.x && b.y === head.y)) {
+      snake.unshift(head); snake.pop(); prev = old; return gameOver("bomb");
+    }
 
     const eats = apple && head.x === apple.x && head.y === apple.y;
     const body = eats ? snake : snake.slice(0, -1);   // η ουρά φεύγει αν δεν τρώει
-    if (body.some(s => s.x === head.x && s.y === head.y)) return gameOver("self");
+    if (body.some(s => s.x === head.x && s.y === head.y)) { prev = old; return gameOver("self"); }
 
     snake.unshift(head);
     if (eats) {
@@ -260,132 +265,144 @@
     } else {
       snake.pop();
     }
-    draw();
+    prev = old;
   }
 
   /* ===== Σχεδίαση ===== */
   let cell = 20;
+  const sprites = {};     // έτοιμες εικόνες, φτιάχνονται μία φορά ανά αλλαγή μεγέθους
+  let bgCanvas = null;
+
+  function makeCanvas(w, h) { const c = document.createElement("canvas"); c.width = Math.ceil(w); c.height = Math.ceil(h); return c; }
+
   function resize() {
     const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.round(rect.width * dpr);
     canvas.height = Math.round(rect.height * dpr);
     cell = canvas.width / GRID;
-    draw();
+    buildSprites();
   }
 
-  function roundRect(x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
+  function roundRect(c, x, y, w, h, r) {
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r);
+    c.closePath();
   }
 
-  function drawImageCircle(img, cx, cy, size) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, size / 2, 0, Math.PI * 2);
-    ctx.clip();
-    // cover-fit
+  function circleImage(c, img, cx, cy, size) {
+    c.save();
+    c.beginPath(); c.arc(cx, cy, size / 2, 0, Math.PI * 2); c.clip();
     const s = Math.min(img.width, img.height);
-    ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, cx - size / 2, cy - size / 2, size, size);
-    ctx.restore();
+    c.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, cx - size / 2, cy - size / 2, size, size);
+    c.restore();
   }
 
-  // Κέρμα 10 λεπτών ευρώ (χρυσό «Nordic gold»)
-  function drawApple(x, y) {
-    const cx = (x + .5) * cell, cy = (y + .5) * cell;
-    const pulse = 1 + Math.sin(Date.now() / 200) * 0.04;
-    if (images.apple) return drawImageCircle(images.apple, cx, cy, cell * 0.95 * pulse);
-    const r = cell * 0.42 * pulse;
-    ctx.save();
-    ctx.shadowColor = "rgba(255,210,80,.55)"; ctx.shadowBlur = cell * .35;
-    const rim = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+  // Πρόσωπο σε κύκλο με χρωματιστό δαχτυλίδι και λάμψη (sprite μεγέθους 2x2 κελιά)
+  function faceSprite(img, ring, glow, radius) {
+    const S = cell * 2, c = makeCanvas(S, S), g = c.getContext("2d"), m = S / 2;
+    g.shadowColor = glow; g.shadowBlur = cell * .35;
+    g.fillStyle = ring;
+    g.beginPath(); g.arc(m, m, radius + cell * .06, 0, Math.PI * 2); g.fill();
+    g.shadowBlur = 0;
+    circleImage(g, img, m, m, radius * 2);
+    return c;
+  }
+
+  function coinSprite() {
+    const S = cell * 2, c = makeCanvas(S, S), g = c.getContext("2d"), cx = S / 2, cy = S / 2;
+    if (images.apple) { circleImage(g, images.apple, cx, cy, cell * .95); return c; }
+    const r = cell * 0.42;
+    g.shadowColor = "rgba(255,210,80,.55)"; g.shadowBlur = cell * .35;
+    const rim = g.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
     rim.addColorStop(0, "#fff0a8"); rim.addColorStop(.5, "#d4a62a"); rim.addColorStop(1, "#8a6512");
-    ctx.fillStyle = rim;
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
-    const face = ctx.createRadialGradient(cx - r * .35, cy - r * .35, r * .1, cx, cy, r * .85);
+    g.fillStyle = rim;
+    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+    g.shadowBlur = 0;
+    const face = g.createRadialGradient(cx - r * .35, cy - r * .35, r * .1, cx, cy, r * .85);
     face.addColorStop(0, "#ffe680"); face.addColorStop(1, "#c8961f");
-    ctx.fillStyle = face;
-    ctx.beginPath(); ctx.arc(cx, cy, r * .84, 0, Math.PI * 2); ctx.fill();
-    // αστεράκια γύρω-γύρω
-    ctx.fillStyle = "rgba(120,85,10,.75)";
+    g.fillStyle = face;
+    g.beginPath(); g.arc(cx, cy, r * .84, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "rgba(120,85,10,.75)";
     for (let i = 0; i < 12; i++) {
       const a = i / 12 * Math.PI * 2;
-      ctx.beginPath(); ctx.arc(cx + Math.cos(a) * r * .68, cy + Math.sin(a) * r * .68, r * .045, 0, Math.PI * 2); ctx.fill();
+      g.beginPath(); g.arc(cx + Math.cos(a) * r * .68, cy + Math.sin(a) * r * .68, r * .045, 0, Math.PI * 2); g.fill();
     }
-    ctx.fillStyle = "#6b4a08";
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.font = `800 ${r * .78}px system-ui, sans-serif`;
-    ctx.fillText("10", cx, cy - r * .08);
-    ctx.font = `700 ${r * .2}px system-ui, sans-serif`;
-    ctx.fillText("CENT", cx, cy + r * .4);
+    g.fillStyle = "#6b4a08";
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.font = `800 ${r * .78}px system-ui, sans-serif`;
+    g.fillText("10", cx, cy - r * .08);
+    g.font = `700 ${r * .2}px system-ui, sans-serif`;
+    g.fillText("CENT", cx, cy + r * .4);
+    return c;
   }
 
-  function drawBomb(x, y) {
+  function buildSprites() {
+    if (!cell) return;
+    bgCanvas = makeCanvas(canvas.width, canvas.height);
+    const b = bgCanvas.getContext("2d");
+    for (let y = 0; y < GRID; y++) for (let x = 0; x < GRID; x++) {
+      b.fillStyle = (x + y) % 2 ? "#1b2040" : "#1f2547";
+      b.fillRect(x * cell, y * cell, cell + 1, cell + 1);
+    }
+    sprites.coin = coinSprite();
+    sprites.head = images.head ? faceSprite(images.head, "#39e58c", "rgba(57,229,140,.8)", cell * .5) : null;
+    sprites.bomb = images.bomb ? faceSprite(images.bomb, "#ff5470", "rgba(255,84,112,.9)", cell * .46) : null;
+  }
+
+  function blitCentered(sprite, cx, cy, scale) {
+    const w = sprite.width * scale, h = sprite.height * scale;
+    ctx.drawImage(sprite, cx - w / 2, cy - h / 2, w, h);
+  }
+
+  function drawCoin(x, y, now) {
+    const pulse = 1 + Math.sin(now / 200) * 0.05;
+    blitCentered(sprites.coin, (x + .5) * cell, (y + .5) * cell, pulse);
+  }
+
+  function drawBomb(x, y, now) {
     const cx = (x + .5) * cell, cy = (y + .5) * cell;
-    if (images.bomb) {
-      const R = cell * 0.46;
-      const fl = (Math.sin(Date.now() / 70) + 1) / 2;
-      // φιτίλι + σπίθα
-      ctx.strokeStyle = "#c9a36b"; ctx.lineWidth = cell * .07; ctx.lineCap = "round";
-      ctx.beginPath(); ctx.moveTo(cx + R * .5, cy - R * .8);
-      ctx.quadraticCurveTo(cx + R * .9, cy - R * 1.35, cx + R * 1.1, cy - R * 1.05); ctx.stroke();
-      ctx.fillStyle = fl > .5 ? "#ffd23f" : "#ff7a1a";
-      ctx.beginPath(); ctx.arc(cx + R * 1.1, cy - R * 1.05, cell * (.08 + fl * .05), 0, Math.PI * 2); ctx.fill();
-      ctx.save();
-      ctx.shadowColor = "rgba(255,84,112,.9)"; ctx.shadowBlur = cell * (.3 + fl * .25);
-      ctx.fillStyle = "#ff5470";
-      ctx.beginPath(); ctx.arc(cx, cy, R + cell * .06, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-      drawImageCircle(images.bomb, cx, cy, R * 2);
-      return;
-    }
+    const fl = (Math.sin(now / 70) + 1) / 2;
+    const R = cell * 0.46;
+    // φιτίλι + σπίθα
+    ctx.strokeStyle = "#c9a36b"; ctx.lineWidth = cell * .07; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(cx + R * .5, cy - R * .8);
+    ctx.quadraticCurveTo(cx + R * .9, cy - R * 1.35, cx + R * 1.1, cy - R * 1.05); ctx.stroke();
+    ctx.fillStyle = fl > .5 ? "#ffd23f" : "#ff7a1a";
+    ctx.beginPath(); ctx.arc(cx + R * 1.1, cy - R * 1.05, cell * (.08 + fl * .05), 0, Math.PI * 2); ctx.fill();
+    if (sprites.bomb) { blitCentered(sprites.bomb, cx, cy, 1 + fl * .03); return; }
     const r = cell * 0.34;
-    const g = ctx.createRadialGradient(cx - r * .4, cy - r * .3, r * .1, cx, cy + r * .1, r);
-    g.addColorStop(0, "#6a6f8a"); g.addColorStop(1, "#0c0e18");
-    ctx.fillStyle = g;
+    ctx.fillStyle = "#14172a";
     ctx.beginPath(); ctx.arc(cx, cy + r * .12, r, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "#3a3f58";
-    ctx.fillRect(cx - r * .25, cy - r * 1.0, r * .5, r * .3);
-    ctx.strokeStyle = "#c9a36b"; ctx.lineWidth = cell * .06; ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(cx, cy - r * 1.0); ctx.quadraticCurveTo(cx + r * .5, cy - r * 1.5, cx + r * .7, cy - r * 1.25); ctx.stroke();
-    const flick = (Math.sin(Date.now() / 70) + 1) / 2;
-    ctx.fillStyle = flick > .5 ? "#ffd23f" : "#ff7a1a";
-    ctx.beginPath(); ctx.arc(cx + r * .75, cy - r * 1.25, cell * (.07 + flick * .04), 0, Math.PI * 2); ctx.fill();
   }
 
-  function drawSnake() {
+  function lerpPos(i, t) {
+    const c = snake[i], p = (prev && prev[i]) || c;
+    return { x: p.x + (c.x - p.x) * t, y: p.y + (c.y - p.y) * t };
+  }
+
+  function drawSnake(t) {
     const n = snake.length;
     for (let i = n - 1; i >= 1; i--) {
-      const s = snake[i];
-      const t = i / Math.max(n - 1, 1);
+      const s = lerpPos(i, t);
+      const k = i / Math.max(n - 1, 1);
       // χρώμα από πράσινο (κοντά στο κεφάλι) προς μπλε (ουρά)
-      const r = Math.round(57 + (31 - 57) * t), g = Math.round(229 + (184 - 229) * t), b = Math.round(140 + (255 - 140) * t);
+      const r = Math.round(57 + (31 - 57) * k), g = Math.round(229 + (184 - 229) * k), b = Math.round(140 + (255 - 140) * k);
       ctx.fillStyle = `rgb(${r},${g},${b})`;
-      const pad = cell * (0.08 + t * 0.08);
-      roundRect(s.x * cell + pad, s.y * cell + pad, cell - pad * 2, cell - pad * 2, cell * 0.3);
+      const pad = cell * (0.08 + k * 0.08);
+      roundRect(ctx, s.x * cell + pad, s.y * cell + pad, cell - pad * 2, cell - pad * 2, cell * 0.3);
       ctx.fill();
     }
-    const h = snake[0];
+    const h = lerpPos(0, t);
     const cx = (h.x + .5) * cell, cy = (h.y + .5) * cell;
-    if (images.head) {
-      ctx.save();
-      ctx.shadowColor = "rgba(57,229,140,.8)"; ctx.shadowBlur = cell * .4;
-      ctx.fillStyle = "#39e58c";
-      ctx.beginPath(); ctx.arc(cx, cy, cell * .56, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-      drawImageCircle(images.head, cx, cy, cell * 1.0);
-      return;
-    }
+    if (sprites.head) { blitCentered(sprites.head, cx, cy, 1); return; }
     ctx.fillStyle = "#39e58c";
-    roundRect(h.x * cell + cell * .04, h.y * cell + cell * .04, cell * .92, cell * .92, cell * .35);
+    roundRect(ctx, h.x * cell + cell * .04, h.y * cell + cell * .04, cell * .92, cell * .92, cell * .35);
     ctx.fill();
-    // μάτια
     const ex = dir.y !== 0 ? cell * .2 : 0, ey = dir.x !== 0 ? cell * .2 : 0;
     const fx = dir.x * cell * .15, fy = dir.y * cell * .15;
     for (const sgn of [-1, 1]) {
@@ -395,19 +412,26 @@
     }
   }
 
-  function draw() {
-    if (!snake) return;
-    for (let y = 0; y < GRID; y++) for (let x = 0; x < GRID; x++) {
-      ctx.fillStyle = (x + y) % 2 ? "#1b2040" : "#1f2547";
-      ctx.fillRect(x * cell, y * cell, cell + 1, cell + 1);
-    }
-    bombs.forEach(b => drawBomb(b.x, b.y));
-    if (apple) drawApple(apple.x, apple.y);
-    drawSnake();
+  function draw(now) {
+    if (!snake || !bgCanvas) return;
+    now = now || performance.now();
+    const t = state === "play" || state === "pause" ? Math.min(acc / TICK_MS, 1) : 1;
+    ctx.drawImage(bgCanvas, 0, 0);
+    if (apple) drawCoin(apple.x, apple.y, now);
+    bombs.forEach(b => drawBomb(b.x, b.y, now));
+    drawSnake(t);
   }
 
-  // ήπια κίνηση (παλμός μήλου, φιτίλι βόμβας) ανάμεσα στα βήματα
-  (function anim() { if (state === "play" || state === "start") draw(); requestAnimationFrame(anim); })();
+  function frame(now) {
+    if (state === "play") {
+      acc += Math.min(now - lastT, 250);   // όριο αν «κόλλησε» η καρτέλα
+      lastT = now;
+      while (acc >= TICK_MS && state === "play") { acc -= TICK_MS; step(); }
+    }
+    draw(now);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
 
   /* ===== Χειρισμός ===== */
   function turn(nx, ny) {
